@@ -38,6 +38,7 @@
     "cordis.patch.yml",
     "README.md",
     "PROVENANCE.md",
+    "PITFALLS.md",
     "LICENSE"
   ],
   "license": "MIT"

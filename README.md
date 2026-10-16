@@ -169,6 +169,11 @@ composer 工具条
   且 `name` 必须与 `cordis.patch.yml` 里 `insert.name` 完全一致 —— 不一致会被**静默跳过**。
 - 子 slot 必须等声明：`ctx.slots.inject(name, cb)`，直接 `register` 会抛
   `slot "…" is not declared`。
+- portal 到 `document.body` 的浮层**拿不到**祖先的 CSS 自定义属性，要三处各声明一份；
+  祖先只要有 `transform` 就会成为 `position: fixed` 的包含块。
+
+> 开发过程中踩过的坑（含我自己犯的判断错误、以及可复用的验证手段）单独整理了
+> 一份 [PITFALLS.md](PITFALLS.md) —— 写这个插件的话值得先读一遍。
 
 ## 档位文案对照
 
