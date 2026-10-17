@@ -1,0 +1,240 @@
+# dsh-codex-power-slider
+
+> 给 **DeepSeek Harness** 的 Web GUI 装上 OpenAI Codex 风格的「思考强度电源滑块」：
+> composer 里一颗胶囊，点开就是一张浮层卡片 —— 顶部当前档位、中部模型名（可下钻模型列表）、
+> 底部圆点刻度滑杆；最高档是蓝紫渐变 + 星点粒子。
+>
+> 数据全部是 **DSH 真实会话数据**：档位来自当前模型适配器公布的 reasoning efforts，
+> 模型来自会话模型目录，拖动即调用 `remote.session.selectModel`，下一次请求立即生效。
+
+## 效果
+
+| 最低档（轻度） | 最高档：起手 0.22s（紫色快速出来一点） | 最高档：拖柄溅出墨点（同帧还带着额度提醒） | 最高档：静下来之后 |
+|---|---|---|---|
+| ![轻度](docs/preview-light.png) | ![起手](docs/preview-kick.png) | ![溅射](docs/preview-splash.png) | ![Ultra](docs/preview-ultra.png) |
+
+模型列表（按提供方分组、悬停浮出说明气泡）：
+
+![模型列表](docs/preview-models.png)
+
+> 上面五张是用离线 harness 把 `lib/client.js` 挂到假 DSH 宿主上真实渲染、再由 Edge 无头截的图
+> （渲染脚本见工作区 `tools/preview-render.mjs`，不在本包内）。第二、三张是**把动画暂停**在
+> 0.216s（两段式扫描的起手终点）和 180ms（墨点飞行中段）拍的定帧，所以每一张都是确定性的。
+
+```
+┌──────────────────────────────────────┐
+│                              ↺       │   ← 恢复该模型默认档位
+│              轻度                    │   ← 当前档位（最高档是蓝紫渐变 + 星点）
+│            6.1 Sol ›                 │   ← 当前模型，点开模型列表
+│  ●────────○──────○──────○──────○     │   ← 圆点刻度 + 白色拖柄
+└──────────────────────────────────────┘
+              [ 轻度 ▾ ]                     ← composer 工具条里的触发器
+```
+
+## 最高档（Ultra）的动效
+
+切到最高档不是「换个颜色」，而是一段 1.8s 的动效：
+
+- **起手快、后面慢**：紫色从右边缘向左扫过，但**分两段走** —— 前 12% 的时间（约 0.22s）
+  先把紫色快速推出来一小截（约轨道右侧 32%），剩下 88% 的时间再慢慢铺满。
+  用**逐关键帧的 `animation-timing-function`** 实现：两段各自有自己的缓动曲线，
+  所以起手是「平稳地快」而不是硬弹。
+- **紫色从右边缘向左扫过**：一条 2 倍宽的材质（左半基础蓝、右半紫蓝本体），靠
+  `background-position` 把取景窗从右往左推。用 `background-position` 而不是位移裁切，
+  是因为它的插值在任何 Chromium 上都一定平滑；两半渐变在基础蓝 `#447ac6` 处**颜色接续**，
+  所以扫描前沿是一道柔和过渡，不是一刀切。
+- **粒子跟着蔓延**：24 颗浮尘长在材质层里，用同一套两段式节奏做 `clip-path` 揭示，
+  「紫到哪儿、粒子到哪儿」，不是一开始就铺满。
+- **粒子会飘（不是只闪）**：每颗粒子挂在固定锚点上，做**两层正交运动** ——
+  外层沿一个固定的主方向往返（漂移 **1.6–3.4px**，周期 **3.4–5.7s**），
+  内层只在**垂直于主方向**上做一次轻脉冲（颤动 **0.7–1.3px**，周期 **1.3–2.4s**）。
+  两个方向严格垂直，所以「离锚点的最坏距离」可以直接写成 `sqrt(D²+J²)`；
+  粒子自身只做 5.3–9.1s 的**明暗呼吸**（最低降到峰值的 60–78%），不做缩放。
+  **峰值速度约 4–7px/s** —— 位移被空间预算卡住之后，能不能被看见几乎只取决于周期：
+  同样 2–3px，8–14s 一轮就等于静止，3–6s 一轮才读得出「漂浮」。
+- **越大的粒子动得越多**：间隙按**半径比例**分给两颗（大粒子份额大），
+  所以实测包络呈梯度 —— 远景 1.6–3.2px、中景 2.8–3.6px、**近景 3.3–3.6px**。
+  对半分会让大粒子（半径大、吃掉更多间隙）反而动得最少，视觉上最显眼的粒子最死板；
+  2 颗近景也**都**带垂直脉冲（只给 1 颗时，用户看到的就是「大粒子不动」）。
+- **不会撞在一起（可证明，不是抽样）**：每颗粒子的运动包络最多只能吃掉
+  「到最近邻的**边缘间隙**」里属于自己的那份（份额和恒为 **0.9** < 1），也不得越出轨道边界 ——
+  于是**任意动画相位**下实体边缘都还剩至少 **0.8px**。当前实测：包络 **1.64–3.63px**，
+  全相位最小间隙 **1.36px**，276 对全部达标。
+  **目标幅度故意定得比预算大**，所以每颗粒子都会动到「自己那块空间允许的上限」。
+- **兴奋的颤动**：其中 **14/24 颗**跑内层那一次轻脉冲。**只有一次**，不做第二次强反向脉冲
+  （重复观看会读成「抽一下、等、再抽一下」）；每一段的 `cubic-bezier` 端点速度都归零、
+  不过冲，所以标量始终落在 `[-1,1]` 内。14 颗各有独立的相位偏移，不会一起出发。
+- **拖柄溅出一圈墨点**：滑到最高档那一下，拖柄边缘向外溅出 **8 颗深蓝紫墨点**
+  （`#20204f`–`#252851`，比卡片底更暗、更蓝 —— 原版就是这个材质语言，不是发光白点）。
+  **一次性**：70ms 起步、单颗飞行 400ms、边飞边淡（42% 之后开始淡出），整组约 **500ms 后完全消失**，
+  不常驻、不循环；离开最高档立即收掉。半径与点径按拖柄直径等比缩放（基准是原版 46px 拖柄
+  量到的：起点半径 24px、终点 45–52px、点径约 7px）。
+- **三层景深**：18 颗远景（0.85–1.6px 小而实）、4 颗中景（1.8–2.6px，小实核 + 软边）、
+  2 颗近景（3.0–3.6px，大而虚）。用径向渐变软边代替动态 `blur`，静态绘制、只动
+  `transform / opacity`。
+- **入口就是原生模型选择器**（gpt-6.1-sol 方案 B）：插件接管原生 `conversation.input.model`
+  这个 single 槽（注册 `priority: -1` 遮蔽原生 ModelSelect）。**收起态与原生 trigger 完全一致**
+  —— 28px 高、`padding: 0 4px 0 8px`、13px/400、caption 灰字、12px 下拉箭头，
+  内容是「模型名 + 思考强度」（如 `6.1 Sol 深入`）；最高档在这里**不加**渐变、紫点、边框。
+- **展开后是一块原生菜单**：表面用宿主自己的 `MenuSurface`（同材质、同圆角、同阴影），
+  内容自上而下是 —— 「思考强度」标题行（右侧当前档位）→ 紧凑滑杆 → 额度提醒 → 分隔线 →
+  「选择模型」分组标题 → 分组模型列表（34px 行、选中打勾、悬停右侧说明气泡）。
+  **没有第二张卡片、没有居中大标题、没有重置换档图标** —— 整块只有一层表面材质。
+- **一道亮色高光随扫描飘过去**：材质是一条 2 倍宽的渐变，紫侧中段有 `#9298ff` 这道高光；
+  扫描时它跟着从右往左飘过整条轨道 —— 这是这个控件最被喜欢的观感，不要把它换成深色前沿
+  （试过：换成深靛紫前沿后，整体发白扁平、滑入显得生硬，已回退）。
+- **最高档的额度提醒常驻**：停在最高档时，滑杆下方固定显示 **「使用额度消耗更快」**
+  （原版文案；纯文本、不可点、无警示色）。以前它是和模型名交叉淡化的 1.6s 临时提示，
+  合并进原生菜单后模型名有自己的行，所以提醒改成**常驻**（gpt-6.1-sol：额度是决策信息，
+  不该只出现一次）。
+- **尊重系统设置**：`prefers-reduced-motion: reduce` 时停掉全部动效（含墨点环入场与交叉淡化），
+  扫描直接停在终态、底光保持常亮 —— 颜色对、材质有光，但什么都不动。
+
+> 这一版的审美方向与参数都由 **gpt-6.1-sol** 给出（差距诊断、参数表、复审收口、
+> 抖动设计与克制边界、额度提醒排版、铺满后的流光配方）；落地时材质色仍是按参考图逐像素采样的结果，
+> 并把它建议的「钉住材质」裁切换回滑动渐变，以保住原版那条柔和的前沿。
+
+## 特性
+
+- **真实生效**：拖动滑杆写入会话的 `reasoningEffort`，与 DSH 原生模型菜单共用同一份
+  会话选择状态；两边随时保持一致（原生菜单改了，卡片跟着变，反之亦然）。
+- **按模型自适应**：每个模型支持几档、叫什么、默认哪一档，全部读适配器元数据。
+  模型可选项不足时不显示滑杆，不会造出不存在的档位。
+- **零构建**：`lib/client.js` 是手写的单文件经典脚本，宿主直接读取字节下发，
+  不需要 tsdown / rollup / pnpm build。
+- **零 Node 依赖**：Node 半边是空插件，不注册服务、不开 HTTP 路由、不注入 index，
+  因此不会和其它插件抢 `webServer` / index 注入通道。
+- **跟随主题**：暗色取色对齐 Codex 原版，亮色走 `body:not([data-ds-dark-theme])` 覆盖，
+  同时尽量复用 `--dsw-alias-*` 语义 token。
+- **键盘可用**：`↑ ↓ ← →` 调整档位，`Esc` 退出模型列表 / 关闭卡片，
+  `role="slider"` + `aria-valuetext` 完整无障碍语义。
+
+## 安装
+
+### 方式一：本地开发（link）
+
+```powershell
+# 1. 把包放进 profile（绝对路径）
+dsh plugin --profile desktop add link:C:\path\to\dsh-codex-power-slider
+```
+
+等价的手工做法（`dsh` CLI 不可用时）：
+
+1. 在本机 profile 目录 `%DSH_HOME%\profiles\desktop` 下：
+   - `package.json` 的 `dependencies` 增加
+     `"dsh-codex-power-slider": "link:C:\\path\\to\\dsh-codex-power-slider"`；
+   - `dsh.profile.bundles` 数组追加 `"dsh-codex-power-slider"`；
+2. 在同目录执行 `pnpm install`；
+3. 让 DSH 重新加载插件树（重启应用，或在「设置 → 插件」里重新启用一次）。
+
+只想临时挂载、不改 `bundles` 时，也可以直接在本 profile 的补丁层
+`cordis.patch.yml` 末尾追加：
+
+```yaml
+- insert:
+    - id: dsh-codex-power-slider
+      name: dsh-codex-power-slider
+```
+
+### 方式二：npm
+
+```powershell
+dsh plugin --profile desktop add dsh-codex-power-slider
+```
+
+### 卸载
+
+```powershell
+dsh plugin --profile desktop remove dsh-codex-power-slider
+```
+
+## 使用
+
+| 操作 | 效果 |
+|---|---|
+| 点工具条里的胶囊 | 打开 / 关闭卡片 |
+| 点卡片中间的模型名 `›` | 进入模型列表（按提供方分组，当前项打勾） |
+| 鼠标悬停模型行 | 右侧浮出该模型的说明气泡 |
+| 拖动滑杆 / 点轨道 | 切换推理强度，松手即提交 |
+| 点右上角 `↺` | 回到该模型的默认推理强度 |
+| `↑` `↓` `←` `→` | 焦点在滑杆上时逐档切换 |
+| `Esc` | 模型列表 → 卡片 → 关闭 |
+
+**切到最高档后的 1.6 秒**，第二行会被临时额度提醒占用（不可点）；这段时间里模型入口不可用，
+1.6 秒后自动恢复 —— 与 Codex 原版一致。提醒期间不重播、不阻塞输入，也不会有「点它却跳到模型列表」
+的语义错位。
+
+## 工作原理
+
+```
+composer 工具条
+  conversation.input.left  ← 空闲的 list slot（session 作用域）
+        │  ctx.slots.inject + ctx.slots.register
+        ▼
+  <dsh-codex-power-slider>  ──portal──▶  document.body（浮层卡片 + 说明气泡）
+
+读：ctx.sessions.binding(sessionId).session.projections.faceOf('modelSelection')
+      → { lastUsed, next }        ← 与原生模型菜单共用同一份投影
+列：ctx.remote.session.modelCatalog()
+      → groups[].models[].reasoning.{ efforts[{id,name,description}], defaultEffort }
+写：ctx.remote.session.selectModel({ sessionId, provider, model, reasoningEffort })
+      → RemoteResult；失败码 session/writer-held 会提示「会话被占用」
+```
+
+关键实现约束（第三方 client 插件通用）：
+
+- 浏览器半边必须是**经典脚本**：顶层同步 `window.__ModuleLoader__.load({ id, factory })`，
+  不能出现 `import` / `export`；`id` 必须等于包名。
+- `factory(require)` 只能 require 平台种子：`react`、`react-dom`、`react/jsx-runtime`、
+  `@deepseek-ai/cordis`、`@deepseek-ai/dsh-client-store`、`@deepseek-ai/dsh-client-ui-slots`、
+  `@deepseek-ai/dsh-client-ui-primitives`、`@deepseek-ai/dsh-client-ui-dockkit`。
+- `package.json` 必须有 `dsh.client.platform === "web"` 与 `exports["./client"]`，
+  且 `name` 必须与 `cordis.patch.yml` 里 `insert.name` 完全一致 —— 不一致会被**静默跳过**。
+- 子 slot 必须等声明：`ctx.slots.inject(name, cb)`，直接 `register` 会抛
+  `slot "…" is not declared`。
+- portal 到 `document.body` 的浮层**拿不到**祖先的 CSS 自定义属性，要三处各声明一份；
+  祖先只要有 `transform` 就会成为 `position: fixed` 的包含块。
+
+> 开发过程中踩过的坑（含我自己犯的判断错误、以及可复用的验证手段）单独整理了
+> 一份 [PITFALLS.md](PITFALLS.md) —— 写这个插件的话值得先读一遍。
+
+## 档位文案对照
+
+DSH 适配器返回的 `effort.name` 永远优先。只有当适配器只给出 id（没有本地化名字）时，
+才回落到 Codex 原版中文文案：
+
+| effort id | 显示 | 完整名 | 说明 |
+|---|---|---|---|
+| `none` / `min` / `minimal` | 轻度 | 快速思考 | 提供快速且深思熟虑的回复 |
+| `low` / `light` | 标准 | 思考中 | 平衡思考时间与回复速度 |
+| `standard` / `medium` | 深度 | 进阶思考 | 延长思考时间以处理复杂问题 |
+| `high` / `extended` / `xhigh` | 极高 | 极高 Thinking | 适用于复杂问题的极高推理深度 |
+| `max` | 深入 | 深度思考 | 针对高难度问题提供更深入的分析 |
+| `ultra` | Ultra | Ultra | 针对高难度问题提供更深入的分析 |
+
+最高档（且该模型 ≥ 3 档）会切换成蓝紫渐变 + 星点粒子的「Ultra」皮肤。
+
+## 限制
+
+- 只对**普通会话**生效；被寻址的 subagent 会话不公开模型选择（DSH 侧的约束）。
+- 目录里没有模型、或模型没有任何 reasoning 元数据时，滑杆不显示，胶囊退化为只读。
+- 会话被其它 DSH 写句柄占用时提交会失败，卡片下方显示错误文案（对应
+  `session/writer-held`）。
+- 卡片宽度固定 282px（拖柄 29px / 轨道高 26px / 标题 15px）；窗口过窄时会自动左右夹紧，不会跑出视口。
+
+## 开发与预览
+
+仓库根目录之外还有一个离线预览 harness（不在本包内），用 Edge 无头模式把
+`lib/client.js` 挂到假的 DSH 宿主上截图，用于在没有 GUI 的环境里检查视觉：
+
+```powershell
+# 需要同时存在 preview/ 目录（含 React UMD 与 harness.html）
+powershell -File preview\shot.ps1 preview\harness.html preview\out\plugin.png
+```
+
+改完 `lib/client.js` 直接刷新页面即可生效 —— 宿主按 `mtimeMs/ctimeMs/size` 算 revision，
+变化会通过 SSE 推 `rebuilt` 帧；只有替换或移除 `dsh-client-modules` 本身才需要整页刷新。
+
+## 许可
+
+MIT，见 [`LICENSE`](LICENSE)。素材与来源说明见 [`PROVENANCE.md`](PROVENANCE.md)。
