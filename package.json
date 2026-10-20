@@ -10,7 +10,8 @@
     "thinking",
     "effort",
     "codex",
-    "power-slider"
+    "power-slider",
+    "reasoning-effort"
   ],
   "type": "module",
   "main": "lib/index.js",
@@ -41,5 +42,17 @@
     "PITFALLS.md",
     "LICENSE"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NNNOOOMII/dsh-codex-power-slider.git"
+  },
+  "homepage": "https://github.com/NNNOOOMII/dsh-codex-power-slider#readme",
+  "bugs": {
+    "url": "https://github.com/NNNOOOMII/dsh-codex-power-slider/issues"
+  },
+  "author": "NNNOOOMII",
+  "engines": {
+    "node": ">=18"
+  }
 }
